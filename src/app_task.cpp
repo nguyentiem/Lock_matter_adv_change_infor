@@ -22,7 +22,7 @@ using chip::Shell::shell_command_t;
 #endif
 
 #ifdef CONFIG_CHIP_NUS
-#include "bt_nus_service.h"
+#include "gdo_nus.h"
 #endif
 
 #include <platform/CHIPDeviceLayer.h>
@@ -199,13 +199,13 @@ CHIP_ERROR AppTask::Init()
 
 #ifdef CONFIG_CHIP_NUS
 	/* Initialize Nordic UART Service for Lock purposes */
-	if (!GetNUSService().Init(kLockNUSPriority, kAdvertisingIntervalMin, kAdvertisingIntervalMax)) {
+	if (!GetGDONUSService().Init(kLockNUSPriority, kAdvertisingIntervalMin, kAdvertisingIntervalMax)) {
 		ChipLogError(Zcl, "Cannot initialize NUS service");
 	}
-	GetNUSService().RegisterCommand("Lock", sizeof("Lock"), NUSLockCallback, nullptr);
-	GetNUSService().RegisterCommand("Unlock", sizeof("Unlock"), NUSUnlockCallback, nullptr);
-	if(!GetNUSService().StartServer()){
-		LOG_ERR("GetNUSService().StartServer() failed");
+	GetGDONUSService().RegisterCommand("Lock", sizeof("Lock"), NUSLockCallback, nullptr);
+	GetGDONUSService().RegisterCommand("Unlock", sizeof("Unlock"), NUSUnlockCallback, nullptr);
+	if(!GetGDONUSService().StartServer()){
+		LOG_ERR("GetGDONUSService().StartServer() failed");
 	}
 #endif
 
@@ -269,9 +269,14 @@ CHIP_ERROR AppTask::Init()
 CHIP_ERROR AppTask::StartApp()
 {
 	ReturnErrorOnFailure(Init());
-
+	StartTimer(1000);
 	AppEvent event = {};
-
+    #ifdef CONFIG_MCUMGR_TRANSPORT_BT
+			GetDFUOverSMP().StartServer();
+#else
+			LOG_INF("Software update is disabled");
+#endif
+LOG_INF("START APP");
 	while (true) {
 		k_msgq_get(&sAppEventQueue, &event, K_FOREVER);
 		DispatchEvent(event);
@@ -300,7 +305,7 @@ void AppTask::IdentifyStopHandler(Identify *)
 void AppTask::StartBLEAdvertisementAndLockActionEventHandler(const AppEvent &event)
 {
 	if (event.ButtonEvent.Action == static_cast<uint8_t>(AppEventType::ButtonPushed)) {
-		Instance().StartTimer(kAdvertisingTriggerTimeout);
+		// Instance().StartTimer(kAdvertisingTriggerTimeout);
 		Instance().mFunction = FunctionEvent::AdvertisingStart;
 	} else {
 		if (Instance().mFunction == FunctionEvent::AdvertisingStart && Instance().mFunctionTimerActive) {
@@ -456,13 +461,18 @@ void AppTask::FunctionTimerEventHandler(const AppEvent &event)
 	if (event.Type != AppEventType::Timer) {
 		return;
 	}
-
+    LOG_INF("UPDATE NUS INFOR");
+    if(!GetGDONUSService().StartServer()){
+		LOG_ERR("GetGDONUSService().StartServer() failed");
+	}
+	k_timer_start(&sFunctionTimer, K_MSEC(1000), K_NO_WAIT);
+	return; 
 	/* If we reached here, the button was held past kFactoryResetTriggerTimeout, initiate factory reset */
 	if (Instance().mFunction == FunctionEvent::SoftwareUpdate) {
 		LOG_INF("Factory Reset Triggered. Release button within %ums to cancel.", kFactoryResetTriggerTimeout);
 
 		/* Start timer for kFactoryResetCancelWindowTimeout to allow user to cancel, if required. */
-		Instance().StartTimer(kFactoryResetCancelWindowTimeout);
+		// Instance().GDONUSService(kFactoryResetCancelWindowTimeout);
 		Instance().mFunction = FunctionEvent::FactoryReset;
 
 		/* Turn off all LEDs before starting blink to make sure blink is coordinated. */
@@ -503,7 +513,7 @@ void AppTask::FunctionHandler(const AppEvent &event)
 	 */
 	if (event.ButtonEvent.Action == static_cast<uint8_t>(AppEventType::ButtonPushed)) {
 		if (!Instance().mFunctionTimerActive && Instance().mFunction == FunctionEvent::NoneSelected) {
-			Instance().StartTimer(kFactoryResetTriggerTimeout);
+			// Instance().GDONUSService(kFactoryResetTriggerTimeout);
 
 			Instance().mFunction = FunctionEvent::SoftwareUpdate;
 		}
@@ -647,27 +657,27 @@ void AppTask::LockStateChanged(BoltLockManager::State state, BoltLockManager::Op
 		LOG_INF("Lock action initiated");
 		sLockLED.Blink(50, 50);
 #ifdef CONFIG_CHIP_NUS
-		GetNUSService().SendData("locking", sizeof("locking"));
+		GetGDONUSService().SendData("locking", sizeof("locking"));
 #endif
 		break;
 	case BoltLockManager::State::kLockingCompleted:
 		LOG_INF("Lock action completed");
 		sLockLED.Set(true);
 #ifdef CONFIG_CHIP_NUS
-		GetNUSService().SendData("locked", sizeof("locked"));
+		GetGDONUSService().SendData("locked", sizeof("locked"));
 #endif
 		break;
 	case BoltLockManager::State::kUnlockingInitiated:
 		LOG_INF("Unlock action initiated");
 		sLockLED.Blink(50, 50);
 #ifdef CONFIG_CHIP_NUS
-		GetNUSService().SendData("unlocking", sizeof("unlocking"));
+		GetGDONUSService().SendData("unlocking", sizeof("unlocking"));
 #endif
 		break;
 	case BoltLockManager::State::kUnlockingCompleted:
 		LOG_INF("Unlock action completed");
 #ifdef CONFIG_CHIP_NUS
-		GetNUSService().SendData("unlocked", sizeof("unlocked"));
+		GetGDONUSService().SendData("unlocked", sizeof("unlocked"));
 #endif
 		sLockLED.Set(false);
 		break;

@@ -46,6 +46,7 @@ target_sources(app PRIVATE
     src/zcl_callbacks.cpp
     src/zap-generated/callback-stub.cpp
     src/zap-generated/IMClusterCommandHandler.cpp
+    src/gdo_nus.cpp
     ${COMMON_ROOT}/src/led_widget.cpp
 )
 
